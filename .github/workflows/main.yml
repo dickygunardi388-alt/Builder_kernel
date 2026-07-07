@@ -102,7 +102,7 @@ jobs:
           run: |
             if [ -n "$PATCH_KSU" ]; then
               if [ "$PATCH_KSU" = "applyPatches-ksun.sh" ] && ! echo "$KERNEL_BRANCH" | grep -q "ksun"; then
-                echo "❌ ERROR: applyPatches-ksun.sh requires a KernelSU-Next branch (e.g. 4.14-ksun)."
+                echo "❌ ERROR: applyPatches-ksun.sh requires a KernelSU-Next branch (e.g. Hydrogen)."
                 exit 1
               elif [ "$PATCH_KSU" = "applyPatches.sh" ] && ! echo "$KERNEL_BRANCH" | grep -q "rssu"; then
                 echo "❌ ERROR: applyPatches.sh requires a ReSukiSU branch (e.g. 4.14-rssu)."
