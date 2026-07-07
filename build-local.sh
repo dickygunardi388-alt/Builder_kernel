@@ -27,8 +27,8 @@ section() { echo -e "\n${BOLD}━━━ $* ━━━${RESET}"; }
 
 # ── Defaults (same as main.yml) ─────────────────────────────
 DEFAULT_COMPILER="shattered-Clang-15"
-DEFAULT_KREPO="https://github.com/Revive-Selene/android_kernel_xiaomi_selene"
-DEFAULT_KBRANCH="4.14"
+DEFAULT_KREPO="https://github.com/dickygunardi388-alt/hydrogen_kernel_xiaomi_selene"
+DEFAULT_KBRANCH="Hydrogen"
 DEFAULT_KSU=""
 DEFAULT_NOTES=""
 DEFAULT_ZREPO=""
