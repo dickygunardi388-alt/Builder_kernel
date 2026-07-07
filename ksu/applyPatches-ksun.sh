@@ -3,7 +3,7 @@
 # applyPatches.sh — ReSukiSU integration for Revive-Selene
 #
 # This script assumes the kernel source was cloned from a branch
-# that already has ReSukiSU manual hooks integrated (e.g. 4.14-rssu).
+# that already has ReSukiSU manual hooks integrated (e.g. Hydrogen).
 # The KernelSU/ folder is a git submodule pointing to ReSukiSU/ReSukiSU.
 # This script simply initializes the submodule so the driver source is present.
 
