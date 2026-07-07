@@ -9,7 +9,7 @@ export outside="${maindir}/.."
 
 export ARCH="arm64"
 export SUBARCH="arm64"
-export KBUILD_BUILD_USER="revive-selene"
+export KBUILD_BUILD_USER="nakamasha-ichika"
 export KBUILD_BUILD_HOST="github-actions"
 
 export defconfig="selene_defconfig"
