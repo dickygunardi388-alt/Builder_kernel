@@ -30,6 +30,17 @@ on: # [push]
         description: 'KSU patch script to run (e.g. applyPatches.sh, applyPatches-ksun.sh, or leave blank for no KSU)'
         required: false
         default: ''
+      ksu_version:
+        description: 'KernelSU-Next version (untuk kernel 4.14)'
+        required: false
+        default: 'v3.3.0'
+        type: choice
+        options:
+          - v3.3.0
+          - v3.2.0-legacy
+          - v3.2.0
+          - v3.1.0-legacy
+          - v3.1.0
       NOTES:
         description: 'Extra notes (printed in build log)'
         required: false
@@ -61,6 +72,7 @@ env:
   VERBOSE: ${{ github.event.inputs.VERBOSE }}
   zipper_repo: ${{ github.event.inputs.ZREPO }}
   zipper_branch: ${{ github.event.inputs.ZBRANCH }}
+  KSU_REPO: https://github.com/KernelSU-Next/KernelSU-Next.git
   TZ: Asia/Jakarta
 
 jobs:
@@ -114,6 +126,130 @@ jobs:
           run: |
             echo "Cloning kernel from: $REPO (branch: $KERNEL_BRANCH)"
             git clone --depth=1 --single-branch --recurse-submodules -j4 $REPO -b $KERNEL_BRANCH kernel
+
+        - name: Update/Patch KernelSU-Next
+          run: |
+            cd kernel
+            
+            KSU_VERSION="${{ github.event.inputs.ksu_version }}"
+            if [ -z "$KSU_VERSION" ]; then
+              KSU_VERSION="v3.3.0"
+            fi
+            
+            echo "========================================"
+            echo "KernelSU-Next Setup"
+            echo "========================================"
+            echo "Kernel Version: 4.14"
+            echo "KernelSU-Next Version: $KSU_VERSION"
+            echo "Repository: KernelSU-Next/KernelSU-Next"
+            echo "========================================"
+            
+            # Hapus KernelSU-Next lama jika ada
+            if [ -d "KernelSU-Next" ]; then
+              echo "Removing old KernelSU-Next directory..."
+              rm -rf KernelSU-Next
+            fi
+            
+            # Clone KernelSU-Next dengan versi tertentu
+            echo ""
+            echo "Cloning KernelSU-Next ($KSU_VERSION)..."
+            echo "Repository: ${{ env.KSU_REPO }}"
+            
+            if git clone --depth=1 -b "$KSU_VERSION" "${{ env.KSU_REPO }}" KernelSU-Next 2>&1; then
+              echo "✓ KernelSU-Next cloned successfully (branch: $KSU_VERSION)"
+            else
+              echo "❌ Failed to clone branch $KSU_VERSION"
+              echo ""
+              echo "Checking available branches..."
+              git ls-remote --heads "${{ env.KSU_REPO }}" | grep -E "v3\." | sort -V | tail -10
+              echo ""
+              echo "Trying main branch as fallback..."
+              rm -rf KernelSU-Next
+              if git clone --depth=1 -b main "${{ env.KSU_REPO }}" KernelSU-Next; then
+                echo "✓ Fallback to main branch successful"
+              else
+                echo "❌ All clone attempts failed!"
+                exit 1
+              fi
+            fi
+            
+            # Tampilkan informasi KernelSU-Next
+            echo ""
+            echo "========================================"
+            echo "KernelSU-Next Information:"
+            echo "========================================"
+            cd KernelSU-Next
+            echo "Latest commits:"
+            git log --oneline -5
+            echo ""
+            echo "Current version/tag:"
+            git describe --tags 2>/dev/null || echo "Commit: $(git rev-parse --short HEAD)"
+            echo ""
+            echo "Branch info:"
+            git branch -a
+            cd ..
+            
+            # Verifikasi structure
+            echo ""
+            echo "========================================"
+            echo "Repository Structure Check:"
+            echo "========================================"
+            if [ -d "KernelSU-Next/kernel" ]; then
+              echo "✓ Kernel patches directory found"
+              echo ""
+              echo "Files in kernel directory:"
+              ls -la KernelSU-Next/kernel/ | grep -v "^d" | tail -20
+            else
+              echo "⚠ Kernel directory not found, checking structure..."
+              ls -la KernelSU-Next/ | head -20
+            fi
+            
+            # Clean kernel sebelum patch (PENTING: jangan gunakan mrproper, cukup clean)
+            echo ""
+            echo "Cleaning kernel output directory..."
+            rm -rf out 2>/dev/null || true
+            
+            # Apply KernelSU-Next patches
+            echo ""
+            echo "========================================"
+            echo "Applying KernelSU-Next patches..."
+            echo "========================================"
+            
+            # Cek setup.sh
+            if [ -f "KernelSU-Next/kernel/setup.sh" ]; then
+              echo "Found setup.sh, executing..."
+              chmod +x KernelSU-Next/kernel/setup.sh
+              bash KernelSU-Next/kernel/setup.sh
+              SETUP_EXIT=$?
+              if [ $SETUP_EXIT -eq 0 ]; then
+                echo "✓ KernelSU-Next patches applied successfully!"
+              else
+                echo "⚠ setup.sh exited with code: $SETUP_EXIT"
+                echo "Checking if patches were still applied..."
+                if [ -d "drivers/kernelsu" ]; then
+                  echo "✓ KernelSU directory exists, continuing..."
+                else
+                  echo "⚠ KernelSU directory not found, but will try to build anyway..."
+                fi
+              fi
+            else
+              echo "⚠ setup.sh not found in KernelSU-Next/kernel/"
+              echo ""
+              echo "Searching for patch application scripts:"
+              find KernelSU-Next -name "*.sh" -type f | head -10
+              echo ""
+              echo "Attempting manual patch..."
+              if find KernelSU-Next/kernel -name "*.patch" -type f 2>/dev/null | head -1 > /dev/null; then
+                echo "Found patch files, applying manually..."
+                for patch in KernelSU-Next/kernel/*.patch; do
+                  if [ -f "$patch" ]; then
+                    echo "Applying: $(basename "$patch")"
+                    patch -p1 < "$patch" || echo "Patch $(basename "$patch") may have issues"
+                  fi
+                done
+                echo "✓ Manual patches attempted"
+              fi
+            fi
 
         - name: print kernel info
           run: |
