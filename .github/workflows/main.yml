@@ -100,7 +100,13 @@ jobs:
         - name: Update/Patch KernelSU-Next
           run: |
             cd kernel
-            KSU_VERSION="${{ github.event.inputs.ksu_version:-v3.3.0 }}"
+            # FIX: Syntax variabel agar tidak invalid workflow
+            KSU_VERSION="${{ inputs.ksu_version || 'v3.3.0' }}"
+            
+            echo "========================================"
+            echo "KernelSU-Next Setup"
+            echo "========================================"
+            echo "KernelSU-Next Version: $KSU_VERSION"
             
             if [ -d "KernelSU-Next" ]; then rm -rf KernelSU-Next; fi
             echo "Cloning KernelSU-Next ($KSU_VERSION)..."
@@ -132,14 +138,12 @@ jobs:
         - name: run compilation
           run: |
             cd kernel
-            
-            # --- FIX HOOK DETECTED ---
-            # Membersihkan file objek lama agar sistem membaca patch hook baru
-            echo "Membersihkan cache build..."
+            # FIX: Bersihkan cache agar patch hook terdeteksi
+            echo "Membersihkan objek kernel..."
             make O=out clean
             rm -rf out/.config
             
-            # FIX LINKER
+            # FIX LINKER COMPAT
             export LD_COMPAT=ld.lld
             export CC_COMPAT=clang
             bash ../build.sh "$COMPILERS"
