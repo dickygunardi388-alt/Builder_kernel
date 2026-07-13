@@ -17,7 +17,8 @@ on: # [push]
       COMPILER:
         description: 'Compiler to use'
         required: true
-        default: 'shattered-Clang-15'
+        # FIX CLANG 1: Diubah ke Proton-Clang agar performa stabil & tidak bootloop/FC di kernel 4.14
+        default: 'Proton-Clang'
       KREPO:
         description: 'Kernel repo URL'
         required: true
@@ -94,6 +95,11 @@ jobs:
             dnf group install development-tools -y
             dnf install llvm lld bc bison ca-certificates curl flex glibc-devel.i686 glibc-devel binutils-devel openssl python3 python2 zstd clang gcc-arm-linux-gnu dtc libxml2 libarchive openssl-devel perl tomsfastmath-devel wget xz -y
             ln -sf "/usr/bin/python3" /usr/bin/python
+            
+            # FIX CLANG 2: Memanipulasi nama linker 32-bit di Fedora agar kernel 4.14 tidak Error 127
+            ln -sf /usr/bin/arm-linux-gnu-ld /usr/bin/arm-linux-gnueabi-ld
+            ln -sf /usr/bin/arm-linux-gnu-gcc /usr/bin/arm-linux-gnueabi-gcc
+            
             git config --global user.name "nakamasha-ichika"
             git config --global user.email "dickygunardi-alt@github.com"
 
@@ -270,6 +276,9 @@ jobs:
         - name: run compilation
           run: |
             cd kernel
+            # FIX CLANG 3: Memaksa Makefile VDSO agar aman dikompilasi (mencegah undefined ld error)
+            export LD_COMPAT=ld.lld
+            export CC_COMPAT=clang
             bash ../build.sh "$COMPILERS"
 
         - name: upload artifacts
