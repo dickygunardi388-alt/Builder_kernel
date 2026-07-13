@@ -10,7 +10,7 @@ export outside="${maindir}/.."
 export ARCH="arm64"
 export SUBARCH="arm64"
 export KBUILD_BUILD_USER="nakamasha-ichika"
-export KBUILD_BUILD_HOST="github-actions"
+export KBUILD_BUILD_HOST="ohayo-sensei"
 
 export defconfig="selene_defconfig"
 
