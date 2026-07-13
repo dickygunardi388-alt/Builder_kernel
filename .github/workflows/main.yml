@@ -92,31 +92,6 @@ jobs:
             git config --global user.name "nakamasha-ichika"
             git config --global user.email "dickygunardi-alt@github.com"
 
-        - name: show host info
-          run: |
-            if [ ! -z "$VERBOSE" ]; then
-              echo "Host: $(cat /etc/os-release | grep PRETTY_NAME | cut -d'=' -f2)"
-              echo "Free disk space: $(df --sync -BM --output=avail / | grep -v Avail)"
-            fi
-
-        - name: print notes if exists
-          run: |
-            if [ ! -z "$NOTE" ]; then
-              echo "Note: $NOTE"
-            fi
-
-        - name: validate KSU + branch combination
-          run: |
-            if [ -n "$PATCH_KSU" ]; then
-              if [ "$PATCH_KSU" = "applyPatches-ksun.sh" ] && ! echo "$KERNEL_BRANCH" | grep -q "ksun"; then
-                echo "❌ ERROR: applyPatches-ksun.sh requires a KernelSU-Next branch (e.g. Hydrogen)."
-                exit 1
-              elif [ "$PATCH_KSU" = "applyPatches.sh" ] && ! echo "$KERNEL_BRANCH" | grep -q "rssu"; then
-                echo "❌ ERROR: applyPatches.sh requires a ReSukiSU branch (e.g. 4.14-rssu)."
-                exit 1
-              fi
-            fi
-
         - name: clone kernel source
           run: |
             echo "Cloning kernel from: $REPO (branch: $KERNEL_BRANCH)"
@@ -125,58 +100,19 @@ jobs:
         - name: Update/Patch KernelSU-Next
           run: |
             cd kernel
+            KSU_VERSION="${{ github.event.inputs.ksu_version:-v3.3.0 }}"
             
-            KSU_VERSION="${{ github.event.inputs.ksu_version }}"
-            if [ -z "$KSU_VERSION" ]; then
-              KSU_VERSION="v3.3.0"
-            fi
-            
-            echo "========================================"
-            echo "KernelSU-Next Setup"
-            echo "========================================"
-            echo "Kernel Version: 4.14"
-            echo "KernelSU-Next Version: $KSU_VERSION"
-            echo "Repository: KernelSU-Next/KernelSU-Next"
-            echo "========================================"
-            
-            if [ -d "KernelSU-Next" ]; then
-              echo "Removing old KernelSU-Next directory..."
-              rm -rf KernelSU-Next
-            fi
-            
+            if [ -d "KernelSU-Next" ]; then rm -rf KernelSU-Next; fi
             echo "Cloning KernelSU-Next ($KSU_VERSION)..."
-            if git clone --depth=1 -b "$KSU_VERSION" "${{ env.KSU_REPO }}" KernelSU-Next 2>&1; then
-              echo "✓ KernelSU-Next cloned successfully (branch: $KSU_VERSION)"
-            else
-              echo "❌ Failed to clone branch $KSU_VERSION, trying main branch..."
-              rm -rf KernelSU-Next
-              git clone --depth=1 -b main "${{ env.KSU_REPO }}" KernelSU-Next
+            if ! git clone --depth=1 -b "$KSU_VERSION" "${{ env.KSU_REPO }}" KernelSU-Next; then
+               git clone --depth=1 -b main "${{ env.KSU_REPO }}" KernelSU-Next
             fi
             
-            echo "Cleaning kernel output directory..."
             rm -rf out 2>/dev/null || true
-            
-            echo "Applying KernelSU-Next patches..."
             if [ -f "KernelSU-Next/kernel/setup.sh" ]; then
               chmod +x KernelSU-Next/kernel/setup.sh
               bash KernelSU-Next/kernel/setup.sh
-            else
-              if find KernelSU-Next/kernel -name "*.patch" -type f 2>/dev/null | head -1 > /dev/null; then
-                for patch in KernelSU-Next/kernel/*.patch; do
-                  patch -p1 < "$patch" || true
-                done
-              fi
             fi
-
-        - name: print kernel info
-          run: |
-            cd kernel
-            source ../env
-            echo "Kernel name: ${kernel_name}"
-            echo "Kernel ver:  ${kernel_ver}"
-            echo "Head commit: ${kernel_head}"
-            echo "Defconfig:   ${defconfig}"
-            echo "KSU mode:    ${PATCH_KSU:-none}"
 
         - name: apply KSU patch
           if: env.PATCH_KSU != ''
@@ -187,36 +123,23 @@ jobs:
         - name: Fix MediaTek Type-C Compilation Error
           run: |
             cd kernel
-            echo "========================================"
-            echo "Menambal Makefile MTK Type-C agar mengabaikan error Clang..."
-            echo "========================================"
-            
             TCPC_MAKE="drivers/misc/mediatek/typec/tcpc/Makefile"
-            TYPEC_MAKE="drivers/misc/mediatek/typec/Makefile"
-            
-            # Patch folder tcpc
             if [ -f "$TCPC_MAKE" ]; then
               sed -i 's/-Werror//g' "$TCPC_MAKE"
-              echo "ccflags-y += -Wno-error" >> "$TCPC_MAKE"
-              echo "ccflags-y += -Wno-incompatible-pointer-types" >> "$TCPC_MAKE"
-              echo "ccflags-y += -Wno-unused-variable" >> "$TCPC_MAKE"
-              echo "ccflags-y += -Wno-implicit-int" >> "$TCPC_MAKE"
-              echo "ccflags-y += -Wno-pointer-sign" >> "$TCPC_MAKE"
-              echo "✅ Patch tcpc Makefile sukses"
-            fi
-            
-            # Patch folder typec parent
-            if [ -f "$TYPEC_MAKE" ]; then
-              sed -i 's/-Werror//g' "$TYPEC_MAKE"
-              echo "ccflags-y += -Wno-error" >> "$TYPEC_MAKE"
-              echo "ccflags-y += -Wno-incompatible-pointer-types" >> "$TYPEC_MAKE"
-              echo "✅ Patch typec Makefile sukses"
+              echo "ccflags-y += -Wno-error -Wno-incompatible-pointer-types -Wno-unused-variable" >> "$TCPC_MAKE"
             fi
 
         - name: run compilation
           run: |
             cd kernel
-            # FIX LINKER COMPAT: Memaksa Makefile VDSO menggunakan clang/lld agar tidak error
+            
+            # --- FIX HOOK DETECTED ---
+            # Membersihkan file objek lama agar sistem membaca patch hook baru
+            echo "Membersihkan cache build..."
+            make O=out clean
+            rm -rf out/.config
+            
+            # FIX LINKER
             export LD_COMPAT=ld.lld
             export CC_COMPAT=clang
             bash ../build.sh "$COMPILERS"
