@@ -1,6 +1,11 @@
 #!/bin/bash
 #
-# applyPatches.sh — KernelSU-Next integration with Manual Hooks for Revive-Selene
+# applyPatches.sh — ReSukiSU integration for Revive-Selene
+#
+# This script assumes the kernel source was cloned from a branch
+# that already has ReSukiSU manual hooks integrated (e.g. Hydrogen).
+# The KernelSU/ folder is a git submodule pointing to ReSukiSU/ReSukiSU.
+# This script simply initializes the submodule so the driver source is present.
 
 export maindir="$(pwd)"
 export outside="${maindir}/.."
@@ -21,38 +26,16 @@ if [ ! -L "${maindir}/drivers/kernelsu" ]; then
 fi
 
 KSU_hashcommit=$(cd "${maindir}/KernelSU-Next" && git rev-parse --short=7 HEAD)
+
 echo ">>> KernelSU-Next commit: ${KSU_hashcommit}"
 
-# === PERUBAHAN PENTING: APPLY MANUAL HOOKS PATCHES ===
-echo ">>> Applying KernelSU Manual Hooks Patches for kernel 4.14..."
+# === PERUBAHAN DI SINI ===
+# Kita membiarkan CONFIG_LOCALVERSION apa adanya (sesuai settingan asli di defconfig)
+# dan HANYA mencatat info KSU di dalam file banner_append (untuk log/catatan rilis).
 
-PATCH_DIR="${outside}/ksu/patches/4.14"
-
-# Mengecek apakah folder patch ada
-if [ -d "$PATCH_DIR" ]; then
-  # Mencari semua file berakhiran .patch dan mengurutkannya
-  for patch_file in $(ls "$PATCH_DIR"/*.patch | sort); do
-    echo " -> Applying patch: $(basename "$patch_file")"
-    
-    # Perintah sakti untuk menempelkan patch ke kernel (mengabaikan jika sudah pernah dipatch)
-    patch -p1 -N -i "$patch_file" -r -
-    
-    if [ $? -eq 0 ]; then
-      echo "    [SUCCESS] Patch applied."
-    else
-      echo "    [WARNING] Patch failed or already applied."
-    fi
-  done
-else
-  echo "ERROR: Patch directory not found at $PATCH_DIR"
-  echo "Manual hooks will not be integrated, build will likely fail!"
-fi
-# =======================================================
-
-# Membiarkan CONFIG_LOCALVERSION apa adanya
 orig_localversion=$(grep 'CONFIG_LOCALVERSION=' "${defconfig_file}" 2>/dev/null | sed 's/CONFIG_LOCALVERSION=//g' | sed 's/"//g')
 echo ">>> Retaining original localversion: ${orig_localversion}"
 
 echo -e " \nincludes KernelSU-Next (KernelSU), commit ${KSU_hashcommit}" >> banner_append
 
-echo ">>> KernelSU-Next submodule ready. Manual hooks integrated."
+echo ">>> KernelSU-Next submodule ready. Kernel name remains unchanged."
