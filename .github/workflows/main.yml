@@ -20,17 +20,6 @@ on:
         description: 'KSU patch script to run (e.g. applyPatches.sh, applyPatches-ksun.sh, or leave blank for no KSU)'
         required: false
         default: ''
-      ksu_version:
-        description: 'KernelSU-Next version (untuk kernel 4.14)'
-        required: false
-        default: 'v3.3.0'
-        type: choice
-        options:
-          - v3.3.0
-          - v3.2.0-legacy
-          - v3.2.0
-          - v3.1.0-legacy
-          - v3.1.0
       NOTES:
         description: 'Extra notes (printed in build log)'
         required: false
@@ -62,7 +51,6 @@ env:
   VERBOSE: ${{ github.event.inputs.VERBOSE }}
   zipper_repo: ${{ github.event.inputs.ZREPO }}
   zipper_branch: ${{ github.event.inputs.ZBRANCH }}
-  KSU_REPO: https://github.com/KernelSU-Next/KernelSU-Next.git
   TZ: Asia/Jakarta
 
 jobs:
@@ -74,6 +62,10 @@ jobs:
     steps:
         - name: checkout
           uses: actions/checkout@master
+
+        - name: Prepare environment
+          run: |
+            grep -v -E "^#|^\n" config-xxksu.env | sed 's/ #.*//; s/#.*//' >> $GITHUB_ENV
 
         - name: record start time
           run: |
@@ -105,68 +97,10 @@ jobs:
               echo "Note: $NOTE"
             fi
 
-        - name: validate KSU + branch combination
-          run: |
-            if [ -n "$PATCH_KSU" ]; then
-              if [ "$PATCH_KSU" = "applyPatches-ksun.sh" ] && ! echo "$KERNEL_BRANCH" | grep -q "ksun"; then
-                echo "❌ ERROR: applyPatches-ksun.sh requires a KernelSU-Next branch (e.g. Hydrogen)."
-                exit 1
-              elif [ "$PATCH_KSU" = "applyPatches.sh" ] && ! echo "$KERNEL_BRANCH" | grep -q "rssu"; then
-                echo "❌ ERROR: applyPatches.sh requires a ReSukiSU branch (e.g. 4.14-rssu)."
-                exit 1
-              fi
-            fi
-
         - name: clone kernel source
           run: |
             echo "Cloning kernel from: $REPO (branch: $KERNEL_BRANCH)"
             git clone --depth=1 --single-branch --recurse-submodules -j4 $REPO -b $KERNEL_BRANCH kernel
-
-        - name: Update/Patch KernelSU-Next
-          run: |
-            cd kernel
-            
-            KSU_VERSION="${{ github.event.inputs.ksu_version }}"
-            if [ -z "$KSU_VERSION" ]; then
-              KSU_VERSION="v3.3.0"
-            fi
-            
-            echo "========================================"
-            echo "KernelSU-Next Setup"
-            echo "========================================"
-            echo "Kernel Version: 4.14"
-            echo "KernelSU-Next Version: $KSU_VERSION"
-            echo "Repository: KernelSU-Next/KernelSU-Next"
-            echo "========================================"
-            
-            if [ -d "KernelSU-Next" ]; then
-              echo "Removing old KernelSU-Next directory..."
-              rm -rf KernelSU-Next
-            fi
-            
-            echo "Cloning KernelSU-Next ($KSU_VERSION)..."
-            if git clone --depth=1 -b "$KSU_VERSION" "${{ env.KSU_REPO }}" KernelSU-Next 2>&1; then
-              echo "✓ KernelSU-Next cloned successfully (branch: $KSU_VERSION)"
-            else
-              echo "❌ Failed to clone branch $KSU_VERSION, trying main branch..."
-              rm -rf KernelSU-Next
-              git clone --depth=1 -b main "${{ env.KSU_REPO }}" KernelSU-Next
-            fi
-            
-            echo "Cleaning kernel output directory..."
-            rm -rf out 2>/dev/null || true
-            
-            echo "Applying KernelSU-Next patches..."
-            if [ -f "KernelSU-Next/kernel/setup.sh" ]; then
-              chmod +x KernelSU-Next/kernel/setup.sh
-              bash KernelSU-Next/kernel/setup.sh
-            else
-              if find KernelSU-Next/kernel -name "*.patch" -type f 2>/dev/null | head -1 > /dev/null; then
-                for patch in KernelSU-Next/kernel/*.patch; do
-                  patch -p1 < "$patch" || true
-                done
-              fi
-            fi
 
         - name: print kernel info
           run: |
@@ -242,3 +176,4 @@ jobs:
             else
               echo "❌ Build failed in $((WDIFF / 60))m $((WDIFF % 60))s"
             fi
+
