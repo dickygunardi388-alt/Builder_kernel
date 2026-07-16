@@ -16,10 +16,6 @@ on:
         description: 'Kernel branch'
         required: true
         default: 'Hydrogen'
-      KSU:
-        description: 'KSU patch script to run (e.g. applyPatches.sh, applyPatches-ksun.sh, or leave blank for no KSU)'
-        required: false
-        default: ''
       NOTES:
         description: 'Extra notes (printed in build log)'
         required: false
@@ -45,7 +41,6 @@ env:
   REPO: ${{ github.event.inputs.KREPO }}
   RUN_NUM: ${{ github.run_number }}_${{ github.run_attempt }}
   KERNEL_BRANCH: ${{ github.event.inputs.KBRANCH }}
-  PATCH_KSU: ${{ github.event.inputs.KSU }}
   NOTE: ${{ github.event.inputs.NOTES }}
   COMPILERS: ${{ github.event.inputs.COMPILER }}
   VERBOSE: ${{ github.event.inputs.VERBOSE }}
@@ -110,13 +105,88 @@ jobs:
             echo "Kernel ver:  ${kernel_ver}"
             echo "Head commit: ${kernel_head}"
             echo "Defconfig:   ${defconfig}"
-            echo "KSU mode:    ${PATCH_KSU:-none}"
 
-        - name: apply KSU patch
-          if: env.PATCH_KSU != ''
+        - name: Apply Configs and Patches (from env)
           run: |
             cd kernel
-            bash ../ksu/$PATCH_KSU
+            source ../env
+            
+            # Temukan lokasi file defconfig
+            DEFCONFIG_FILE=$(find arch -name "${defconfig}")
+            
+            # 1. Setup KernelSU dan Patches terkait
+            if [ "${{ env.ENABLE_KERNELSU }}" == "true" ]; then
+                echo "ENABLE_KERNELSU is true. Menyalin KernelSU..."
+                curl -LSs "${{ env.KERNELSU_SETUP_SOURCE }}" | bash -s "${{ env.KERNELSU_TAG }}"
+                
+                if [ "${{ env.KSU_REVERT }}" == "true" ]; then
+                    echo "Menerapkan KSU_REVERT.patch..."
+                    git apply ../patches/KSU_REVERT.patch
+                fi
+                
+                if [ "${{ env.KSU_HOOKS_PATCH }}" == "true" ]; then
+                    echo "Menerapkan KSU_HOOKS_PATCH.patch..."
+                    git apply ../patches/KSU_HOOKS_PATCH.patch
+                    if grep -q "CONFIG_KSU" "$DEFCONFIG_FILE"; then
+                        sed -i 's/# CONFIG_KSU is not set/CONFIG_KSU=y/g' "$DEFCONFIG_FILE"
+                        sed -i 's/CONFIG_KSU=n/CONFIG_KSU=y/g' "$DEFCONFIG_FILE"
+                    else
+                        echo "CONFIG_KSU=y" >> "$DEFCONFIG_FILE"
+                    fi
+                fi
+                
+                if [ "${{ env.ADD_KPROBES_CONFIG }}" == "true" ] && [ "${{ env.KSU_HOOKS_PATCH }}" != "true" ]; then
+                    echo "Menambahkan konfigurasi KPROBES..."
+                    echo "CONFIG_MODULES=y" >> "$DEFCONFIG_FILE"
+                    echo "CONFIG_KPROBES=y" >> "$DEFCONFIG_FILE"
+                    echo "CONFIG_HAVE_KPROBES=y" >> "$DEFCONFIG_FILE"
+                    echo "CONFIG_KPROBE_EVENTS=y" >> "$DEFCONFIG_FILE"
+                fi
+                
+                echo "Menambahkan susfs dan ekstensi konfigurasi KernelSU lainnya..."
+                for config in CONFIG_KSU=y \
+                              CONFIG_KSU_TAMPER_SYSCALL_TABLE=y \
+                              CONFIG_KSU_SUSFS=y \
+                              CONFIG_KSU_SUSFS_SUS_PATH=y \
+                              CONFIG_KSU_SUSFS_SUS_MOUNT=y \
+                              CONFIG_KSU_SUSFS_SUS_KSTAT=y \
+                              CONFIG_KSU_SUSFS_SPOOF_UNAME=y \
+                              CONFIG_KSU_SUSFS_ENABLE_LOG=y \
+                              CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y \
+                              CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y \
+                              CONFIG_KSU_SUSFS_SUS_OVERLAYFS=y \
+                              CONFIG_KSU_SUSFS_OPEN_REDIRECT=y \
+                              CONFIG_KSU_SUSFS_SUS_MAP=y
+                do
+                    echo "$config" >> "$DEFCONFIG_FILE"
+                done
+            fi
+            
+            # 2. Setup APatch Support
+            if [ "${{ env.ADD_APATCH_SUPPORT }}" == "true" ]; then
+                echo "ADD_APATCH_SUPPORT is true. Menyiapkan konfigurasi KALLSYMS..."
+                sed -i 's/# CONFIG_DEBUG_KERNEL is not set/CONFIG_DEBUG_KERNEL=y/g' "$DEFCONFIG_FILE"
+                sed -i 's/CONFIG_DEBUG_KERNEL=n/CONFIG_DEBUG_KERNEL=y/g' "$DEFCONFIG_FILE"
+                echo "CONFIG_DEBUG_KERNEL=y" >> "$DEFCONFIG_FILE"
+                sed -i 's/# CONFIG_KALLSYMS is not set/CONFIG_KALLSYMS=y/g' "$DEFCONFIG_FILE"
+                sed -i 's/CONFIG_KALLSYMS=n/CONFIG_KALLSYMS=y/g' "$DEFCONFIG_FILE"
+                echo "CONFIG_KALLSYMS=y" >> "$DEFCONFIG_FILE"
+                sed -i 's/# CONFIG_KALLSYMS_ALL is not set/CONFIG_KALLSYMS_ALL=y/g' "$DEFCONFIG_FILE"
+                sed -i 's/CONFIG_KALLSYMS_ALL=n/CONFIG_KALLSYMS_ALL=y/g' "$DEFCONFIG_FILE"
+                echo "CONFIG_KALLSYMS_ALL=y" >> "$DEFCONFIG_FILE"
+                sed -i 's/# CONFIG_KALLSYMS_BASE_RELATIVE is not set/CONFIG_KALLSYMS_BASE_RELATIVE=y/g' "$DEFCONFIG_FILE"
+                sed -i 's/CONFIG_KALLSYMS_BASE_RELATIVE=n/CONFIG_KALLSYMS_BASE_RELATIVE=y/g' "$DEFCONFIG_FILE"
+                echo "CONFIG_KALLSYMS_BASE_RELATIVE=y" >> "$DEFCONFIG_FILE"
+                
+                if [ "${{ env.FIX_APATCH_OPENELA }}" == "true" ]; then
+                    echo "Menerapkan FIX_APATCH_OPENELA.patch..."
+                    git apply ../patches/FIX_APATCH_OPENELA.patch || {
+                        echo "Patch gagal, mencoba REVERT_ADD_GET_CRED_RCU.patch terlebih dahulu..."
+                        git apply ../patches/REVERT_ADD_GET_CRED_RCU.patch
+                        git apply ../patches/FIX_APATCH_OPENELA.patch
+                    }
+                fi
+            fi
 
         - name: Fix MediaTek Type-C Compilation Error
           run: |
@@ -176,4 +246,3 @@ jobs:
             else
               echo "❌ Build failed in $((WDIFF / 60))m $((WDIFF % 60))s"
             fi
-
