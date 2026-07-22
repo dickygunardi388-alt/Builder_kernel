@@ -7,15 +7,15 @@ on:
       COMPILER:
         description: 'Compiler to use'
         required: true
-        default: 'Proton-Clang'
+        default: 'Neutron-Clang'
       KREPO:
         description: 'Kernel repo URL'
         required: true
-        default: 'https://github.com/dickygunardi388-alt/hydrogen_kernel_xiaomi_selene'
+        default: 'https://github.com/dickygunardi388-alt/android_kernel_xiaomi_selene'
       KBRANCH:
         description: 'Kernel branch'
         required: true
-        default: 'Hydrogen'
+        default: '4.14ksun-susfs'
       KSU:
         description: 'KSU patch script to run (e.g. applyPatches.sh, applyPatches-ksun.sh, or leave blank for no KSU)'
         required: false
@@ -28,7 +28,7 @@ on:
         options:
           - v3.3.0
           - v3.2.0-legacy
-          - v3.2.0
+          - legacy
           - v3.1.0-legacy
           - v3.1.0
       NOTES:
