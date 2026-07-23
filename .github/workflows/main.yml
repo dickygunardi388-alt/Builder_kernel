@@ -26,9 +26,9 @@ on:
         default: 'v3.3.0'
         type: choice
         options:
-          - v3.3.0
-          - v3.2.0-legacy
+          - stable
           - legacy
+          - syscall
           - v3.1.0-legacy
           - v3.1.0
       NOTES:
@@ -62,7 +62,7 @@ env:
   VERBOSE: ${{ github.event.inputs.VERBOSE }}
   zipper_repo: ${{ github.event.inputs.ZREPO }}
   zipper_branch: ${{ github.event.inputs.ZBRANCH }}
-  KSU_REPO: https://github.com/KernelSU-Next/KernelSU-Next.git
+  KSU_REPO: https://github.com/Ghnkz/KernelSU-Next.git
   TZ: Asia/Jakarta
   ADD_KPM_SUPPORT: true
   KPM_PATCH_URL: https://github.com/SukiSU-Ultra/SukiSU_KernelPatch_patch/releases/download/0.13.2/patch_linux
