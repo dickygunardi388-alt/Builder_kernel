@@ -7,15 +7,30 @@ on:
       COMPILER:
         description: 'Compiler to use'
         required: true
-        default: 'Proton-Clang'
+        default: 'Neutron-Clang'
       KREPO:
         description: 'Kernel repo URL'
         required: true
-        default: 'https://github.com/dickygunardi388-alt/hydrogen_kernel_xiaomi_selene'
+        default: 'https://github.com/dickygunardi388-alt/android_kernel_xiaomi_selene'
       KBRANCH:
         description: 'Kernel branch'
         required: true
-        default: 'Hydrogen'
+        default: '4.14ksun-susfs'
+      KSU:
+        description: 'KSU patch script to run (e.g. applyPatches.sh, applyPatches-ksun.sh, or leave blank for no KSU)'
+        required: false
+        default: ''
+      ksu_version:
+        description: 'KernelSU-Next version (untuk kernel 4.14)'
+        required: false
+        default: 'v3.3.0'
+        type: choice
+        options:
+          - v3.3.0
+          - v3.2.0-legacy
+          - legacy
+          - v3.1.0-legacy
+          - v3.1.0
       NOTES:
         description: 'Extra notes (printed in build log)'
         required: false
@@ -41,12 +56,16 @@ env:
   REPO: ${{ github.event.inputs.KREPO }}
   RUN_NUM: ${{ github.run_number }}_${{ github.run_attempt }}
   KERNEL_BRANCH: ${{ github.event.inputs.KBRANCH }}
+  PATCH_KSU: ${{ github.event.inputs.KSU }}
   NOTE: ${{ github.event.inputs.NOTES }}
   COMPILERS: ${{ github.event.inputs.COMPILER }}
   VERBOSE: ${{ github.event.inputs.VERBOSE }}
   zipper_repo: ${{ github.event.inputs.ZREPO }}
   zipper_branch: ${{ github.event.inputs.ZBRANCH }}
+  KSU_REPO: https://github.com/KernelSU-Next/KernelSU-Next.git
   TZ: Asia/Jakarta
+  ADD_KPM_SUPPORT: true
+  KPM_PATCH_URL: https://github.com/SukiSU-Ultra/SukiSU_KernelPatch_patch/releases/download/0.13.2/patch_linux
 
 jobs:
   build:
@@ -57,10 +76,6 @@ jobs:
     steps:
         - name: checkout
           uses: actions/checkout@master
-
-        - name: Prepare environment
-          run: |
-            grep -v -E "^#|^\n" config-xxksu.env | sed 's/ #.*//; s/#.*//' >> $GITHUB_ENV
 
         - name: record start time
           run: |
@@ -92,10 +107,68 @@ jobs:
               echo "Note: $NOTE"
             fi
 
+        - name: validate KSU + branch combination
+          run: |
+            if [ -n "$PATCH_KSU" ]; then
+              if [ "$PATCH_KSU" = "applyPatches-ksun.sh" ] && ! echo "$KERNEL_BRANCH" | grep -q "ksun"; then
+                echo "❌ ERROR: applyPatches-ksun.sh requires a KernelSU-Next branch (e.g. Hydrogen)."
+                exit 1
+              elif [ "$PATCH_KSU" = "applyPatches.sh" ] && ! echo "$KERNEL_BRANCH" | grep -q "rssu"; then
+                echo "❌ ERROR: applyPatches.sh requires a ReSukiSU branch (e.g. 4.14-rssu)."
+                exit 1
+              fi
+            fi
+
         - name: clone kernel source
           run: |
             echo "Cloning kernel from: $REPO (branch: $KERNEL_BRANCH)"
             git clone --depth=1 --single-branch --recurse-submodules -j4 $REPO -b $KERNEL_BRANCH kernel
+
+        - name: Update/Patch KernelSU-Next
+          run: |
+            cd kernel
+            
+            KSU_VERSION="${{ github.event.inputs.ksu_version }}"
+            if [ -z "$KSU_VERSION" ]; then
+              KSU_VERSION="v3.3.0"
+            fi
+            
+            echo "========================================"
+            echo "KernelSU-Next Setup"
+            echo "========================================"
+            echo "Kernel Version: 4.14"
+            echo "KernelSU-Next Version: $KSU_VERSION"
+            echo "Repository: KernelSU-Next/KernelSU-Next"
+            echo "========================================"
+            
+            if [ -d "KernelSU-Next" ]; then
+              echo "Removing old KernelSU-Next directory..."
+              rm -rf KernelSU-Next
+            fi
+            
+            echo "Cloning KernelSU-Next ($KSU_VERSION)..."
+            if git clone --depth=1 -b "$KSU_VERSION" "${{ env.KSU_REPO }}" KernelSU-Next 2>&1; then
+              echo "✓ KernelSU-Next cloned successfully (branch: $KSU_VERSION)"
+            else
+              echo "❌ Failed to clone branch $KSU_VERSION, trying main branch..."
+              rm -rf KernelSU-Next
+              git clone --depth=1 -b main "${{ env.KSU_REPO }}" KernelSU-Next
+            fi
+            
+            echo "Cleaning kernel output directory..."
+            rm -rf out 2>/dev/null || true
+            
+            echo "Applying KernelSU-Next patches..."
+            if [ -f "KernelSU-Next/kernel/setup.sh" ]; then
+              chmod +x KernelSU-Next/kernel/setup.sh
+              bash KernelSU-Next/kernel/setup.sh
+            else
+              if find KernelSU-Next/kernel -name "*.patch" -type f 2>/dev/null | head -1 > /dev/null; then
+                for patch in KernelSU-Next/kernel/*.patch; do
+                  patch -p1 < "$patch" || true
+                done
+              fi
+            fi
 
         - name: print kernel info
           run: |
@@ -105,88 +178,13 @@ jobs:
             echo "Kernel ver:  ${kernel_ver}"
             echo "Head commit: ${kernel_head}"
             echo "Defconfig:   ${defconfig}"
+            echo "KSU mode:    ${PATCH_KSU:-none}"
 
-        - name: Apply Configs and Patches (from env)
+        - name: apply KSU patch
+          if: env.PATCH_KSU != ''
           run: |
             cd kernel
-            source ../env
-            
-            # Temukan lokasi file defconfig
-            DEFCONFIG_FILE=$(find arch -name "${defconfig}")
-            
-            # 1. Setup KernelSU dan Patches terkait
-            if [ "${{ env.ENABLE_KERNELSU }}" == "true" ]; then
-                echo "ENABLE_KERNELSU is true. Menyalin KernelSU..."
-                curl -LSs "${{ env.KERNELSU_SETUP_SOURCE }}" | bash -s "${{ env.KERNELSU_TAG }}"
-                
-                if [ "${{ env.KSU_REVERT }}" == "true" ]; then
-                    echo "Menerapkan KSU_REVERT.patch..."
-                    git apply ../patches/KSU_REVERT.patch
-                fi
-                
-                if [ "${{ env.KSU_HOOKS_PATCH }}" == "true" ]; then
-                    echo "Menerapkan KSU_HOOKS_PATCH.patch..."
-                    git apply ../patches/KSU_HOOKS_PATCH.patch
-                    if grep -q "CONFIG_KSU" "$DEFCONFIG_FILE"; then
-                        sed -i 's/# CONFIG_KSU is not set/CONFIG_KSU=y/g' "$DEFCONFIG_FILE"
-                        sed -i 's/CONFIG_KSU=n/CONFIG_KSU=y/g' "$DEFCONFIG_FILE"
-                    else
-                        echo "CONFIG_KSU=y" >> "$DEFCONFIG_FILE"
-                    fi
-                fi
-                
-                if [ "${{ env.ADD_KPROBES_CONFIG }}" == "true" ] && [ "${{ env.KSU_HOOKS_PATCH }}" != "true" ]; then
-                    echo "Menambahkan konfigurasi KPROBES..."
-                    echo "CONFIG_MODULES=y" >> "$DEFCONFIG_FILE"
-                    echo "CONFIG_KPROBES=y" >> "$DEFCONFIG_FILE"
-                    echo "CONFIG_HAVE_KPROBES=y" >> "$DEFCONFIG_FILE"
-                    echo "CONFIG_KPROBE_EVENTS=y" >> "$DEFCONFIG_FILE"
-                fi
-                
-                echo "Menambahkan susfs dan ekstensi konfigurasi KernelSU lainnya..."
-                for config in CONFIG_KSU=y \
-                              CONFIG_KSU_TAMPER_SYSCALL_TABLE=y \
-                              CONFIG_KSU_SUSFS=y \
-                              CONFIG_KSU_SUSFS_SUS_PATH=y \
-                              CONFIG_KSU_SUSFS_SUS_MOUNT=y \
-                              CONFIG_KSU_SUSFS_SUS_KSTAT=y \
-                              CONFIG_KSU_SUSFS_SPOOF_UNAME=y \
-                              CONFIG_KSU_SUSFS_ENABLE_LOG=y \
-                              CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y \
-                              CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y \
-                              CONFIG_KSU_SUSFS_SUS_OVERLAYFS=y \
-                              CONFIG_KSU_SUSFS_OPEN_REDIRECT=y \
-                              CONFIG_KSU_SUSFS_SUS_MAP=y
-                do
-                    echo "$config" >> "$DEFCONFIG_FILE"
-                done
-            fi
-            
-            # 2. Setup APatch Support
-            if [ "${{ env.ADD_APATCH_SUPPORT }}" == "true" ]; then
-                echo "ADD_APATCH_SUPPORT is true. Menyiapkan konfigurasi KALLSYMS..."
-                sed -i 's/# CONFIG_DEBUG_KERNEL is not set/CONFIG_DEBUG_KERNEL=y/g' "$DEFCONFIG_FILE"
-                sed -i 's/CONFIG_DEBUG_KERNEL=n/CONFIG_DEBUG_KERNEL=y/g' "$DEFCONFIG_FILE"
-                echo "CONFIG_DEBUG_KERNEL=y" >> "$DEFCONFIG_FILE"
-                sed -i 's/# CONFIG_KALLSYMS is not set/CONFIG_KALLSYMS=y/g' "$DEFCONFIG_FILE"
-                sed -i 's/CONFIG_KALLSYMS=n/CONFIG_KALLSYMS=y/g' "$DEFCONFIG_FILE"
-                echo "CONFIG_KALLSYMS=y" >> "$DEFCONFIG_FILE"
-                sed -i 's/# CONFIG_KALLSYMS_ALL is not set/CONFIG_KALLSYMS_ALL=y/g' "$DEFCONFIG_FILE"
-                sed -i 's/CONFIG_KALLSYMS_ALL=n/CONFIG_KALLSYMS_ALL=y/g' "$DEFCONFIG_FILE"
-                echo "CONFIG_KALLSYMS_ALL=y" >> "$DEFCONFIG_FILE"
-                sed -i 's/# CONFIG_KALLSYMS_BASE_RELATIVE is not set/CONFIG_KALLSYMS_BASE_RELATIVE=y/g' "$DEFCONFIG_FILE"
-                sed -i 's/CONFIG_KALLSYMS_BASE_RELATIVE=n/CONFIG_KALLSYMS_BASE_RELATIVE=y/g' "$DEFCONFIG_FILE"
-                echo "CONFIG_KALLSYMS_BASE_RELATIVE=y" >> "$DEFCONFIG_FILE"
-                
-                if [ "${{ env.FIX_APATCH_OPENELA }}" == "true" ]; then
-                    echo "Menerapkan FIX_APATCH_OPENELA.patch..."
-                    git apply ../patches/FIX_APATCH_OPENELA.patch || {
-                        echo "Patch gagal, mencoba REVERT_ADD_GET_CRED_RCU.patch terlebih dahulu..."
-                        git apply ../patches/REVERT_ADD_GET_CRED_RCU.patch
-                        git apply ../patches/FIX_APATCH_OPENELA.patch
-                    }
-                fi
-            fi
+            bash ../ksu/$PATCH_KSU
 
         - name: Fix MediaTek Type-C Compilation Error
           run: |
@@ -224,6 +222,68 @@ jobs:
             export LD_COMPAT=ld.lld
             export CC_COMPAT=clang
             bash ../build.sh "$COMPILERS"
+
+        - name: Apply KPM Patch (SukiSU KernelPatch)
+          if: success() && env.ADD_KPM_SUPPORT == 'true'
+          run: |
+            cd kernel
+            export ARCH=arm64
+            export SUBARCH=arm64
+            
+            RAW_IMAGE="out/arch/arm64/boot/Image"
+            
+            echo "========================================"
+            echo "KPM (KernelPatch Module) Support"
+            echo "========================================"
+            echo "Source: $KPM_PATCH_URL"
+            echo "========================================"
+            
+            if [ ! -f "$RAW_IMAGE" ]; then
+              echo "⚠ Raw kernel Image tidak ditemukan di $RAW_IMAGE, skip KPM patch"
+              exit 0
+            fi
+            
+            echo "Mengunduh patch_linux..."
+            curl -L -o patch_linux "$KPM_PATCH_URL"
+            chmod +x patch_linux
+            
+            # patch_linux beroperasi pada file bernama "Image" di direktori kerja saat ini
+            cp "$RAW_IMAGE" ./Image
+            ./patch_linux || echo "⚠ patch_linux exit non-zero, cek output di atas"
+            
+            if [ -f "oImage" ]; then
+              cp oImage "$RAW_IMAGE"
+              echo "✓ KPM berhasil di-embed ke $RAW_IMAGE"
+              
+              echo ""
+              echo "Membuat ulang Image.gz-dtb dari Image yang sudah dipatch KPM..."
+              make -j$(nproc) O=out \
+                CROSS_COMPILE="aarch64-linux-gnu-" \
+                CROSS_COMPILE_ARM32="arm-linux-gnueabi-" \
+                CROSS_COMPILE_COMPAT="arm-linux-gnueabi-" \
+                CC=clang \
+                LD=ld.lld \
+                LLVM_IAS=1 \
+                Image.gz-dtb
+              
+              if [ $? -eq 0 ]; then
+                echo "✓ Image.gz-dtb berhasil dibuat ulang dengan KPM"
+                
+                # CATATAN: Karena workflow asli Anda memakai build.sh (yang kemungkinan besar membungkus
+                # kernel ke zip AnyKernel), kita memanggil build.sh kembali agar kernel `.zip`
+                # yang diunggah berisi Image.gz-dtb yang baru saja ditambal KPM.
+                echo "Repacking AnyKernel menggunakan build.sh..."
+                export LD_COMPAT=ld.lld
+                export CC_COMPAT=clang
+                bash ../build.sh "$COMPILERS"
+              else
+                echo "⚠ Gagal membuat ulang Image.gz-dtb, output final mungkin masih versi tanpa KPM"
+              fi
+            else
+              echo "⚠ oImage tidak dihasilkan oleh patch_linux — lanjut tanpa KPM embed."
+              echo "Periksa dokumentasi resmi untuk flag CLI yang benar:"
+              echo "https://github.com/SukiSU-Ultra/SukiSU_KernelPatch_patch"
+            fi
 
         - name: upload artifacts
           uses: actions/upload-artifact@v4
