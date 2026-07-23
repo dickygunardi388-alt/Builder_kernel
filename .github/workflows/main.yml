@@ -15,7 +15,7 @@ on:
       KBRANCH:
         description: 'Kernel branch'
         required: true
-        default: '4.14ksun-susfs'
+        default: 'sukisu'
       KSU:
         description: 'KSU patch script to run (e.g. applyPatches.sh, applyPatches-ksun.sh, or leave blank for no KSU)'
         required: false
