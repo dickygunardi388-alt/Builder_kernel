@@ -64,6 +64,9 @@ env:
   zipper_branch: ${{ github.event.inputs.ZBRANCH }}
   KSU_REPO: https://github.com/KernelSU-Next/KernelSU-Next.git
   TZ: Asia/Jakarta
+  # KPM (KernelPatch Module) support — embed KPM ke Image hasil build
+  ADD_KPM_SUPPORT: true
+  KPM_PATCH_URL: https://github.com/SukiSU-Ultra/SukiSU_KernelPatch_patch/releases/download/0.12.2/patch_linux
 
 jobs:
   build:
@@ -220,6 +223,13 @@ jobs:
             export LD_COMPAT=ld.lld
             export CC_COMPAT=clang
             bash ../build.sh "$COMPILERS"
+
+         if [ "$ADD_KPM_SUPPORT" == "true" ]; then
+            NAME="${NAME}-KPM"
+          fi
+
+          echo "name=$NAME" >> "$GITHUB_OUTPUT"
+
 
         - name: upload artifacts
           uses: actions/upload-artifact@v4
